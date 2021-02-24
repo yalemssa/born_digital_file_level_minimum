@@ -1,17 +1,18 @@
 #/usr/bin/python3
 
-from collections import defaultdict
 import csv
 import json
 import requests
-import pprint
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
 '''
-Script to UPDATE existing archival object data with spreadsheet values
+Script to create or update archival objects according to YUL BDAWG Born-Digital File Level Minumum Standards
 
-TODO: CREATE archival objects
+TODO:
+-Logging
+-Add .get() statements instead of using brackets (error handling)
+
 '''
 
 def login(url=None, username=None, password=None):
@@ -55,9 +56,8 @@ def opencsvdict(input_csv=None):
 
 def create_backups(dirpath, uri, record_json):
     with open(f"{dirpath}/{uri[1:].replace('/','_')}.json", 'a', encoding='utf8') as outfile:
-        print(f"Writing outfile: {dirpath}/{uri[1:].replace('/','_')}.json")
         json.dump(record_json, outfile, sort_keys=True, indent=4)
-        print(f'Outfile supposedly written')
+
 
 class FileLevelMin():
     def __init__(self):
@@ -66,15 +66,18 @@ class FileLevelMin():
         self.dirpath = self.config['output_folder']
         self.api_url, self.headers = login(self.config['api_url'], self.config['username'], self.config['password'])
 
-    def get_object(self, csv_row, sesh):
-        record_json = sesh.get(f"{self.api_url}{csv_row.get('archival_object_uri')}", headers=self.headers).json()
-        create_backups(self.dirpath, csv_row.get('archival_object_uri'), record_json)
+    def get_object(self, uri, sesh):
+        record_json = sesh.get(f"{self.api_url}{uri}", headers=self.headers).json()
+        create_backups(self.dirpath, uri, record_json)
         return record_json
 
-    def post_object(self, record_json, csv_row, sesh):
+    def post_updated_object(self, record_json, csv_row, sesh):
         return sesh.post(f"{self.api_url}{csv_row.get('archival_object_uri')}", json=record_json, headers=self.headers).json()
 
-    def update_archival_object(self, csv_row, record_json):
+    def post_new_object(self, record_json, csv_row, sesh):
+        return sesh.post(f"{self.api_url}/repositories/12/archival_objects", json=record_json, headers=self.headers).json()
+
+    def update_archival_object(self, csv_row, record_json, sesh):
         record_json['title'] = csv_row['title']
         record_json = self.create_extents(csv_row, record_json)
         record_json = self.create_date(csv_row, record_json)
@@ -82,23 +85,57 @@ class FileLevelMin():
         record_json = self.create_arrangement_note(csv_row, record_json)
         record_json = self.create_processinfo_note(csv_row, record_json)
         record_json = self.create_otherfindaid_note(csv_row, record_json)
-        record_json = self.create_access_note(csv_row, record_json)
+        record_json = self.create_access_note(csv_row, record_json, sesh)
+        return record_json
+
+    def create_archival_object(self, csv_row, sesh):
+        record_json = {'jsonmodel_type': 'archival_object',
+        'publish': True,
+        'resource': {'ref': csv_row['resource']}, 'repository': {'ref': csv_row['repository']},
+        'parent': {'ref': csv_row['archival_object_uri']},
+        'level': 'file',
+        'extents': [],
+        'instances': [],
+        'dates': [],
+        'notes': []}
+        record_json = self.update_archival_object(csv_row, record_json, sesh)
         return record_json
 
     def run_update_funcs(self, csv_row, sesh):
         try:
-            record_json = self.get_object(csv_row, sesh)
-            updated_archival_object = self.update_archival_object(csv_row, record_json)
-            posted_object = self.post_object(record_json, csv_row, sesh)
+            record_uri = csv_row.get('archival_object_uri')
+            record_json = self.get_object(record_uri, sesh)
+            record_json = self.update_archival_object(csv_row, record_json, sesh)
+            posted_object = self.post_updated_object(record_json, csv_row, sesh)
             print(posted_object)
         except Exception:
             print(traceback.format_exc())
 
+    def run_create_funcs(self, csv_row, sesh):
+        try:
+            record_json = self.create_archival_object(csv_row, sesh)
+            posted_object = self.post_new_object(record_json, csv_row, sesh)
+            print(posted_object)
+        except Exception:
+            print(traceback.format_exc())
+
+    def select_operation(self):
+        '''This allows a user to select a create or update option'''
+        csv_filename = self.config['input_csv']
+        if 'create' in csv_filename:
+            return self.run_create_funcs
+        elif 'update' in csv_filename:
+            return self.run_update_funcs
+        else:
+            #THIS WORKS, but could also mask another error
+            raise Exception('Filename does not contain a valid create or update statement')
+
     def execute_process(self):
+        self.operation = self.select_operation()
         with ThreadPoolExecutor(max_workers=4) as pool:
             with requests.Session() as sesh:
                 for row in self.csvfile:
-                    pool.submit(self.run_update_funcs, row, sesh)
+                    pool.submit(self.operation, row, sesh)
 
     def create_multipart_note(self, record_json, note_text, note_type, **kwargs):
         '''creates a multipart note'''
@@ -124,14 +161,15 @@ class FileLevelMin():
         If there is no match, then append. This is an extra precaution - 
         it is unlikely that born-digital materials will have multiple date
         records - but it is possible'''
-        new_date = {'jsonmodel_type': 'date', 'expression': csv_row['date_expression'], 'begin': csv_row['date_begin'],
-                    'date_type': csv_row['date_type'], 'label': csv_row['date_label']}
-        if csv_row['date_end'] != '':
-            new_date['end'] = csv_row['date_end']
-        if len(record_json['dates']) in (0, 1):
-            record_json['dates'] = [new_date]
-        if len(record_json['dates']) > 1:
-            record_json['dates'].append(new_date)
+        if csv_row['date_label'] != '' and csv_row['date_type'] != '':
+            new_date = {'jsonmodel_type': 'date', 'expression': csv_row['date_expression'], 'begin': csv_row['date_begin'],
+                        'date_type': csv_row['date_type'], 'label': csv_row['date_label']}
+            if csv_row['date_end'] != '':
+                new_date['end'] = csv_row['date_end']
+            if len(record_json['dates']) in (0, 1):
+                record_json['dates'] = [new_date]
+            if len(record_json['dates']) > 1:
+                record_json['dates'].append(new_date)
         return record_json
 
     def create_machine_actionable_restriction(self, new_note, kwargs):
@@ -161,24 +199,70 @@ class FileLevelMin():
         if len(record_json['extents']) == 0:
             record_json['extents'].append(new_extent)
         else:
-            print(record_json['extents'])
+            # print(record_json['extents'])
+            # If there is already an extent...just insert the new one. Not sure if this is the final behavior that we want????
+            # Do a little bit more work here.
             record_json['extents'].insert(1, new_extent)
         return record_json
 
-    def create_access_note(self, csv_row, record_json):
+    def create_access_note(self, csv_row, record_json, sesh):
         if (csv_row['use_standard_access_note'] != 'Y' and csv_row['access_restrict'] != ''):
             record_json = self.create_multipart_note(record_json, csv_row['access_restrict'], 'accessrestrict', end=csv_row['timebound_restriction_end_date'], begin=csv_row['timebound_restriction_begin_date'], local_access_restriction_type=csv_row['machine_actionable_restriction_type'])
-        else:
-            if csv_row['access_restrict'] != '':
-                note_text, mar_type = self.standard_access_note()
-                record_json = self.create_multipart_note(recod_json, note_text, 'accessrestrict', local_access_restriction_type=mar_type)
+        elif csv_row['use_standard_access_note'] == 'Y':
+            #if csv_row['access_restrict'] != '':
+            note_text, mar_type = self.standard_access_note(record_json, sesh)
+            record_json = self.create_multipart_note(record_json, note_text, 'accessrestrict', local_access_restriction_type=mar_type)
         return record_json
 
-    def standard_access_note(self):
-        #what did we decide for the standard note title??
-        digital_object_title = 'TESTING'
+    def get_multiple_titles(self, instances, sesh):
+        combined = []
+        for instance in instances:
+            dig_object_json = self.get_object(instance, sesh)
+            combined.append(dig_object_json['title'])
+        combined.sort()
+        return f"{combined[0]}-{combined[-1]}"
+
+    def get_do_instances(self, record_json, sesh):
+        #make sure to use a .get here so that it will work with the create function
+        instances = record_json.get('instances')
+        #WHAT IF THERE IS MORE THAN ONE DIGITAL OBJECT?? Use the note creation process...
+        digital_object_instances = []
+        for instance in instances:
+            if 'digital_object' in instance:
+                digital_object_instances.append(instance['digital_object']['ref'])
+        if len(digital_object_instances) == 1:
+            dig_object_json = self.get_object(digital_object_instances[0], sesh)
+            return dig_object_json['title']
+        elif len(digital_object_instances) > 1:
+            return self.get_multiple_titles(digital_object_instances, sesh)
+        #if the length is 0 it should return None
+
+    def get_ancestors(self, record_json, sesh):
+        #make sure to use a .get here so that it will work with the create function
+        ancestors = record_json.get('ancestors')
+        if ancestors:
+            for ancestor in ancestors:
+                if ancestor.get('level') == 'series':
+                    ancestor_json = self.get_object(ancestor.get('ref'), sesh)
+                    return ancestor_json.get('component_unique_id')
+        #if there is no ancestor list or if there is no CUID it should return None
+
+
+    def get_digital_object_title(self, record_json, sesh):
+        ancestors = self.get_ancestors(record_json, sesh)
+        digital_objects = self.get_do_instances(record_json, sesh)
+        if digital_objects:
+            return digital_objects
+        elif ancestors:
+            return ancestors
+        else:
+            #just the parent - change this
+            return record_json['parent']['ref']
+        
+    def standard_access_note(self, record_json, sesh):
+        digital_object_title = self.get_digital_object_title(record_json, sesh)
         standard_text = f"""As a preservation measure, original materials may not be used. Digital access copies must be provided for use. Contact Manuscripts and Archives at <ref actuate="onRequest" show="new" href="mailto:mssa.assist@yale.edu?subject=Digital Copy Request: {digital_object_title}.">mssa.assist@yale.edu</ref> to request access"""
-        return standard_text, 'UseSurrogate'
+        return standard_text, ['UseSurrogate']
 
     def create_arrangement_note(self, csv_row, record_json):
         if csv_row['arrangement'] != '':
@@ -199,32 +283,6 @@ class FileLevelMin():
         if csv_row['scope_content'] != '':
             record_json = self.create_multipart_note(record_json, csv_row['scope_content'], 'scopecontent')
         return record_json
-
-
-    # Sketches of the 'create records' functionality
-
-    # def create_archival_object(csv_row):
-    #     new_archival_object = {'jsonmodel_type': 'archival_object',
-    #     'resource': {'ref': csv_row['resource']}, 'repository': {'ref': csv_row['repository']},
-    #     'parent': {'ref': csv_row['archival_object_uri']}, 'title': csv_row['title']}
-    #     notes = create_notes()
-    #     extents = create_extents()
-    #     for key, value in new_archival_object:
-    #         if value == '':
-    #             del new_achival_object[key]
-
-    # def call_looper(csvfile):
-    #     for row in csvfile:
-    #         perform_operation
-
-    # def invalid_option():
-    #     raise Exception("Not a valid operation")
-
-    # def perform_operation(csv_row, selected_option):
-    #     '''This allows a user to select a create or update option'''
-    #     options = {"create": create_archival_object,
-    #                 "update": update_archival_object}
-    #     return options.get(selected_option, invalid_option)
 
 
 def main():
