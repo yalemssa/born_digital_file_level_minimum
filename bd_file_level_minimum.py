@@ -8,11 +8,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 '''
 Script to create or update archival objects according to YUL BDAWG Born-Digital File Level Minumum Standards
-
-TODO:
--Logging
--Add .get() statements instead of using brackets (error handling)
-
 '''
 
 def login(url=None, username=None, password=None):
@@ -199,18 +194,19 @@ class FileLevelMin():
             new_extent['container_summary'] = extent_container_summary
         if len(record_json['extents']) == 0:
             record_json['extents'].append(new_extent)
-        else:
-            # print(record_json['extents'])
-            # If there is already an extent...just insert the new one. Not sure if this is the final behavior that we want????
-            # Do a little bit more work here.
-            record_json['extents'].insert(1, new_extent)
+        elif len(record_json['extents']) > 0:
+            if index_position == 0:
+                record_json['extents'][0] = new_extent
+            if (len(record_json['extents']) == 1 and index_position == 1):
+                record_json['extents'].insert(1, new_extent)
+            if (len(record_json['extents']) > 1 and index_position == 1):
+                record_json['extents'][1] = new_extent
         return record_json
 
     def create_access_note(self, csv_row, record_json, sesh):
         if (csv_row['use_standard_access_note'] != 'Y' and csv_row['access_restrict'] != ''):
             record_json = self.create_multipart_note(record_json, csv_row['access_restrict'], 'accessrestrict', end=csv_row['timebound_restriction_end_date'], begin=csv_row['timebound_restriction_begin_date'], local_access_restriction_type=csv_row['machine_actionable_restriction_type'])
         elif csv_row['use_standard_access_note'] == 'Y':
-            #if csv_row['access_restrict'] != '':
             note_text, mar_type = self.standard_access_note(record_json, sesh)
             record_json = self.create_multipart_note(record_json, note_text, 'accessrestrict', local_access_restriction_type=mar_type)
         return record_json
@@ -224,46 +220,45 @@ class FileLevelMin():
         return f"{combined[0]}-{combined[-1]}"
 
     def get_do_instances(self, record_json, sesh):
-        #make sure to use a .get here so that it will work with the create function
         instances = record_json.get('instances')
-        #WHAT IF THERE IS MORE THAN ONE DIGITAL OBJECT?? Use the note creation process...
-        digital_object_instances = []
-        for instance in instances:
-            if 'digital_object' in instance:
-                digital_object_instances.append(instance['digital_object']['ref'])
-        if len(digital_object_instances) == 1:
-            dig_object_json = self.get_object(digital_object_instances[0], sesh)
-            return dig_object_json['title']
-        elif len(digital_object_instances) > 1:
-            return self.get_multiple_titles(digital_object_instances, sesh)
-        #if the length is 0 it should return None
+        if instances:
+            digital_object_instances = []
+            for instance in instances:
+                if 'digital_object' in instance:
+                    digital_object_instances.append(instance['digital_object']['ref'])
+            if len(digital_object_instances) == 1:
+                dig_object_json = self.get_object(digital_object_instances[0], sesh)
+                return dig_object_json['title']
+            elif len(digital_object_instances) > 1:
+                return self.get_multiple_titles(digital_object_instances, sesh)
+            #if the length is 0 it should return None
 
-    def get_ancestors(self, record_json, sesh):
-        #make sure to use a .get here so that it will work with the create function
-        ancestors = record_json.get('ancestors')
-        if ancestors:
-            for ancestor in ancestors:
-                if ancestor.get('level') == 'series':
-                    ancestor_json = self.get_object(ancestor.get('ref'), sesh)
-                    return ancestor_json.get('component_unique_id')
+    # def get_ancestors(self, record_json, sesh):
+    #     #make sure to use a .get here so that it will work with the create function
+    #     ancestors = record_json.get('ancestors')
+    #     if ancestors:
+    #         for ancestor in ancestors:
+    #             if ancestor.get('level') == 'series':
+    #                 ancestor_json = self.get_object(ancestor.get('ref'), sesh)
+    #                 return ancestor_json.get('component_unique_id')
         #if there is no ancestor list or if there is no CUID it should return None
 
 
     def get_digital_object_title(self, record_json, sesh):
-        ancestors = self.get_ancestors(record_json, sesh)
+        cuid = record_json.get('component_id')
         digital_objects = self.get_do_instances(record_json, sesh)
         if digital_objects:
             return digital_objects
-        elif ancestors:
-            return ancestors
-        else:
-            #just the parent - change this
-            return record_json['parent']['ref']
+        elif cuid:
+            return cuid
         
     def standard_access_note(self, record_json, sesh):
         digital_object_title = self.get_digital_object_title(record_json, sesh)
-        standard_text = f"""As a preservation measure, original materials may not be used. Digital access copies must be provided for use. Contact Manuscripts and Archives at <ref actuate="onRequest" show="new" href="mailto:mssa.assist@yale.edu?subject=Digital Copy Request: {digital_object_title}.">mssa.assist@yale.edu</ref> to request access"""
-        return standard_text, ['UseSurrogate']
+        if digital_object_title:
+            standard_text = f"""As a preservation measure, original materials may not be used. Digital access copies must be provided for use. Contact Manuscripts and Archives at <ref actuate="onRequest" show="new" href="mailto:mssa.assist@yale.edu?subject=Digital Copy Request: {digital_object_title}">mssa.assist@yale.edu</ref> to request access"""
+        else:
+            standard_text = f"""As a preservation measure, original materials may not be used. Digital access copies must be provided for use. Contact Manuscripts and Archives at <ref actuate="onRequest" show="new" href="mailto:mssa.assist@yale.edu?subject=Digital Copy Request">mssa.assist@yale.edu</ref> to request access"""
+        return standard_text, ['RestrictedFragileSpecColl']
 
     def create_arrangement_note(self, csv_row, record_json):
         if csv_row['arrangement'] != '':
