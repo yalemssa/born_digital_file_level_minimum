@@ -78,7 +78,8 @@ class FileLevelMin():
         return sesh.post(f"{self.api_url}/repositories/12/archival_objects", json=record_json, headers=self.headers).json()
 
     def update_archival_object(self, csv_row, record_json, sesh):
-        record_json['title'] = csv_row['title']
+        if csv_row['title'] != '':
+            record_json['title'] = csv_row['title']
         record_json = self.create_extents(csv_row, record_json)
         record_json = self.create_date(csv_row, record_json)
         record_json = self.create_scope_note(csv_row, record_json)
