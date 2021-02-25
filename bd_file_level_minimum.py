@@ -73,29 +73,35 @@ class FileLevelMin():
         return sesh.post(f"{self.api_url}/repositories/12/archival_objects", json=record_json, headers=self.headers).json()
 
     def update_archival_object(self, csv_row, record_json, sesh):
-        if csv_row['title'] != '':
-            record_json['title'] = csv_row['title']
-        record_json = self.create_extents(csv_row, record_json)
-        record_json = self.create_date(csv_row, record_json)
-        record_json = self.create_scope_note(csv_row, record_json)
-        record_json = self.create_arrangement_note(csv_row, record_json)
-        record_json = self.create_processinfo_note(csv_row, record_json)
-        record_json = self.create_otherfindaid_note(csv_row, record_json)
-        record_json = self.create_access_note(csv_row, record_json, sesh)
-        return record_json
+        try:
+            if csv_row['title'] != '':
+                record_json['title'] = csv_row['title']
+            record_json = self.create_extents(csv_row, record_json)
+            record_json = self.create_date(csv_row, record_json)
+            record_json = self.create_scope_note(csv_row, record_json)
+            record_json = self.create_arrangement_note(csv_row, record_json)
+            record_json = self.create_processinfo_note(csv_row, record_json)
+            record_json = self.create_otherfindaid_note(csv_row, record_json)
+            record_json = self.create_access_note(csv_row, record_json, sesh)
+            return record_json
+        except Exception:
+            print(traceback,format_exc())
 
     def create_archival_object(self, csv_row, sesh):
-        record_json = {'jsonmodel_type': 'archival_object',
-        'publish': True,
-        'resource': {'ref': csv_row['resource']}, 'repository': {'ref': csv_row['repository']},
-        'parent': {'ref': csv_row['archival_object_uri']},
-        'level': 'file',
-        'extents': [],
-        'instances': [],
-        'dates': [],
-        'notes': []}
-        record_json = self.update_archival_object(csv_row, record_json, sesh)
-        return record_json
+        try:
+            record_json = {'jsonmodel_type': 'archival_object',
+            'publish': True,
+            'resource': {'ref': csv_row['resource']}, 'repository': {'ref': csv_row['repository']},
+            'parent': {'ref': csv_row['archival_object_uri']},
+            'level': 'file',
+            'extents': [],
+            'instances': [],
+            'dates': [],
+            'notes': []}
+            record_json = self.update_archival_object(csv_row, record_json, sesh)
+            return record_json
+        except Exception:
+            print(traceback.format_exc())
 
     def run_update_funcs(self, csv_row, sesh):
         try:
@@ -128,28 +134,34 @@ class FileLevelMin():
 
     def execute_process(self):
         self.operation = self.select_operation()
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            with requests.Session() as sesh:
-                for row in self.csvfile:
-                    pool.submit(self.operation, row, sesh)
+        try:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                with requests.Session() as sesh:
+                    for row in self.csvfile:
+                        pool.submit(self.operation, row, sesh)
+        except Exception:
+            print(traceback.format_exc())
 
     def create_multipart_note(self, record_json, note_text, note_type, **kwargs):
         '''creates a multipart note'''
-        note_types = tuple(note.get('type') for note in record_json['notes'])
-        new_note = {'jsonmodel_type': 'note_multipart', 'type': note_type, 'publish': True,
-                        'subnotes': [{'jsonmodel_type': 'note_text', 'content': note_text, 'publish': True}]}
-        if note_type == 'accessrestrict':
-            new_note = self.create_machine_actionable_restriction(new_note, kwargs)
-        if note_type not in note_types:
-            record_json['notes'].append(new_note)
-        elif note_type in note_types:
-            if note_types.count(note_type) < 2:
-                for note in record_json['notes']:
-                    if note['type'] == note_type:
-                        note['subnotes'][0]['content'] = note_text
-            else:
+        try:
+            note_types = tuple(note.get('type') for note in record_json['notes'])
+            new_note = {'jsonmodel_type': 'note_multipart', 'type': note_type, 'publish': True,
+                            'subnotes': [{'jsonmodel_type': 'note_text', 'content': note_text, 'publish': True}]}
+            if note_type == 'accessrestrict':
+                new_note = self.create_machine_actionable_restriction(new_note, kwargs)
+            if note_type not in note_types:
                 record_json['notes'].append(new_note)
-        return record_json
+            elif note_type in note_types:
+                if note_types.count(note_type) < 2:
+                    for note in record_json['notes']:
+                        if note['type'] == note_type:
+                            note['subnotes'][0]['content'] = note_text
+                else:
+                    record_json['notes'].append(new_note)
+            return record_json
+        except Exception:
+            print(traceback.format_exc())
 
     def create_date(self, csv_row, record_json):
         '''because there can be multiple dates, first want to find out
@@ -157,81 +169,102 @@ class FileLevelMin():
         If there is no match, then append. This is an extra precaution - 
         it is unlikely that born-digital materials will have multiple date
         records - but it is possible'''
-        if csv_row['date_label'] != '' and csv_row['date_type'] != '':
-            new_date = {'jsonmodel_type': 'date', 'expression': csv_row['date_expression'], 'begin': csv_row['date_begin'],
-                        'date_type': csv_row['date_type'], 'label': csv_row['date_label']}
-            if csv_row['date_end'] != '':
-                new_date['end'] = csv_row['date_end']
-            if len(record_json['dates']) in (0, 1):
-                record_json['dates'] = [new_date]
-            if len(record_json['dates']) > 1:
-                record_json['dates'].append(new_date)
-        return record_json
+        try:
+            if csv_row['date_label'] != '' and csv_row['date_type'] != '':
+                new_date = {'jsonmodel_type': 'date', 'expression': csv_row['date_expression'], 'begin': csv_row['date_begin'],
+                            'date_type': csv_row['date_type'], 'label': csv_row['date_label']}
+                if csv_row['date_end'] != '':
+                    new_date['end'] = csv_row['date_end']
+                if len(record_json['dates']) in (0, 1):
+                    record_json['dates'] = [new_date]
+                if len(record_json['dates']) > 1:
+                    record_json['dates'].append(new_date)
+            return record_json
+        except Exception:
+            print(traceback.format_exc())
 
     def create_machine_actionable_restriction(self, new_note, kwargs):
         '''What happens if there are multiple access restriction types'''
-        new_note['rights_restriction'] = {}
-        for key, value in kwargs.items():
-            if key == 'end' and value != '':
-                new_note['rights_restriction']['end'] = value
-            if key == 'begin' and value != '':
-                new_note['rights_restriction']['begin'] = value
-            if key == 'local_access_restriction_type' and value != '':
-                new_note['rights_restriction']['local_access_restriction_type'] = value
-        return new_note
+        try:
+            new_note['rights_restriction'] = {}
+            for key, value in kwargs.items():
+                if key == 'end' and value != '':
+                    new_note['rights_restriction']['end'] = value
+                if key == 'begin' and value != '':
+                    new_note['rights_restriction']['begin'] = value
+                if key == 'local_access_restriction_type' and value != '':
+                    new_note['rights_restriction']['local_access_restriction_type'] = value
+            return new_note
+        except Exception:
+            print(traceback.format_exc())
 
     def create_extents(self, csv_row, record_json):
-        if (csv_row['extent_number_1'] != '' and csv_row['extent_portion_1'] != '' and csv_row['extent_type_1'] != ''):
-            record_json = self.new_extent(record_json, csv_row['extent_number_1'], csv_row['extent_portion_1'], csv_row['extent_type_1'], csv_row['extent_summary_1'], 0)
-        if (csv_row['extent_number_2'] != '' and csv_row['extent_portion_2'] != '' and csv_row['extent_type_2'] != ''):
-            record_json = self.new_extent(record_json, csv_row['extent_number_2'], csv_row['extent_portion_2'], csv_row['extent_type_2'], csv_row['extent_summary_2'], 1)
-        return record_json
+        try:
+            if (csv_row['extent_number_1'] != '' and csv_row['extent_portion_1'] != '' and csv_row['extent_type_1'] != ''):
+                record_json = self.new_extent(record_json, csv_row['extent_number_1'], csv_row['extent_portion_1'], csv_row['extent_type_1'], csv_row['extent_summary_1'], 0)
+            if (csv_row['extent_number_2'] != '' and csv_row['extent_portion_2'] != '' and csv_row['extent_type_2'] != ''):
+                record_json = self.new_extent(record_json, csv_row['extent_number_2'], csv_row['extent_portion_2'], csv_row['extent_type_2'], csv_row['extent_summary_2'], 1)
+            return record_json
+        except Exception:
+            print(traceback.format_exc())
 
     def new_extent(self, record_json, extent_number, extent_portion, extent_type, extent_container_summary, index_position):
-        new_extent = {'jsonmodel_type': 'extent', 'number': extent_number,
-                'portion': extent_portion, 'extent_type': extent_type}
-        if extent_container_summary != '':
-            new_extent['container_summary'] = extent_container_summary
-        if len(record_json['extents']) == 0:
-            record_json['extents'].append(new_extent)
-        elif len(record_json['extents']) > 0:
-            if index_position == 0:
-                record_json['extents'][0] = new_extent
-            if (len(record_json['extents']) == 1 and index_position == 1):
-                record_json['extents'].insert(1, new_extent)
-            if (len(record_json['extents']) > 1 and index_position == 1):
-                record_json['extents'][1] = new_extent
-        return record_json
+        try:
+            new_extent = {'jsonmodel_type': 'extent', 'number': extent_number,
+                    'portion': extent_portion, 'extent_type': extent_type}
+            if extent_container_summary != '':
+                new_extent['container_summary'] = extent_container_summary
+            if len(record_json['extents']) == 0:
+                record_json['extents'].append(new_extent)
+            elif len(record_json['extents']) > 0:
+                if index_position == 0:
+                    record_json['extents'][0] = new_extent
+                if (len(record_json['extents']) == 1 and index_position == 1):
+                    record_json['extents'].insert(1, new_extent)
+                if (len(record_json['extents']) > 1 and index_position == 1):
+                    record_json['extents'][1] = new_extent
+            return record_json
+        except Exception:
+            print(traceback.format_exc())
 
     def create_access_note(self, csv_row, record_json, sesh):
-        if (csv_row['use_standard_access_note'] != 'Y' and csv_row['access_restrict'] != ''):
-            record_json = self.create_multipart_note(record_json, csv_row['access_restrict'], 'accessrestrict', end=csv_row['timebound_restriction_end_date'], begin=csv_row['timebound_restriction_begin_date'], local_access_restriction_type=csv_row['machine_actionable_restriction_type'])
-        elif csv_row['use_standard_access_note'] == 'Y':
-            note_text, mar_type = self.standard_access_note(record_json, sesh)
-            record_json = self.create_multipart_note(record_json, note_text, 'accessrestrict', local_access_restriction_type=mar_type)
-        return record_json
+        try:
+            if (csv_row['use_standard_access_note'] != 'Y' and csv_row['access_restrict'] != ''):
+                record_json = self.create_multipart_note(record_json, csv_row['access_restrict'], 'accessrestrict', end=csv_row['timebound_restriction_end_date'], begin=csv_row['timebound_restriction_begin_date'], local_access_restriction_type=[csv_row['machine_actionable_restriction_type']])
+            elif csv_row['use_standard_access_note'] == 'Y':
+                note_text, mar_type = self.standard_access_note(record_json, sesh)
+                record_json = self.create_multipart_note(record_json, note_text, 'accessrestrict', local_access_restriction_type=mar_type)
+            return record_json
+        except Exception:
+            print(traceback.format_exc())
 
     def get_multiple_titles(self, instances, sesh):
-        combined = []
-        for instance in instances:
-            dig_object_json = self.get_object(instance, sesh)
-            combined.append(dig_object_json['title'])
-        combined.sort()
-        return f"{combined[0]}-{combined[-1]}"
+        try:
+            combined = []
+            for instance in instances:
+                dig_object_json = self.get_object(instance, sesh)
+                combined.append(dig_object_json['title'])
+            combined.sort()
+            return f"{combined[0]}-{combined[-1]}"
+        except Exception:
+            print(traceback.format_exc())
 
     def get_do_instances(self, record_json, sesh):
-        instances = record_json.get('instances')
-        if instances:
-            digital_object_instances = []
-            for instance in instances:
-                if 'digital_object' in instance:
-                    digital_object_instances.append(instance['digital_object']['ref'])
-            if len(digital_object_instances) == 1:
-                dig_object_json = self.get_object(digital_object_instances[0], sesh)
-                return dig_object_json['title']
-            elif len(digital_object_instances) > 1:
-                return self.get_multiple_titles(digital_object_instances, sesh)
-            #if the length is 0 it should return None
+        try:
+            instances = record_json.get('instances')
+            if instances:
+                digital_object_instances = []
+                for instance in instances:
+                    if 'digital_object' in instance:
+                        digital_object_instances.append(instance['digital_object']['ref'])
+                if len(digital_object_instances) == 1:
+                    dig_object_json = self.get_object(digital_object_instances[0], sesh)
+                    return dig_object_json['title']
+                elif len(digital_object_instances) > 1:
+                    return self.get_multiple_titles(digital_object_instances, sesh)
+                #if the length is 0 it should return None
+        except Exception:
+            print(traceback.format_exc())
 
     # def get_ancestors(self, record_json, sesh):
     #     #make sure to use a .get here so that it will work with the create function
@@ -245,20 +278,26 @@ class FileLevelMin():
 
 
     def get_digital_object_title(self, record_json, sesh):
-        cuid = record_json.get('component_id')
-        digital_objects = self.get_do_instances(record_json, sesh)
-        if digital_objects:
-            return digital_objects
-        elif cuid:
-            return cuid
+        try:
+            digital_objects = self.get_do_instances(record_json, sesh)
+            if digital_objects:
+                return digital_objects
+            cuid = record_json.get('component_id')
+            if cuid:
+                return cuid
+        except Exception:
+            print(traceback.format_exc())
         
     def standard_access_note(self, record_json, sesh):
-        digital_object_title = self.get_digital_object_title(record_json, sesh)
-        if digital_object_title:
-            standard_text = f"""As a preservation measure, original materials may not be used. Digital access copies must be provided for use. Contact Manuscripts and Archives at <ref actuate="onRequest" show="new" href="mailto:mssa.assist@yale.edu?subject=Digital Copy Request: {digital_object_title}">mssa.assist@yale.edu</ref> to request access"""
-        else:
-            standard_text = f"""As a preservation measure, original materials may not be used. Digital access copies must be provided for use. Contact Manuscripts and Archives at <ref actuate="onRequest" show="new" href="mailto:mssa.assist@yale.edu?subject=Digital Copy Request">mssa.assist@yale.edu</ref> to request access"""
-        return standard_text, ['RestrictedFragileSpecColl']
+        try:
+            digital_object_title = self.get_digital_object_title(record_json, sesh)
+            if digital_object_title is not None:
+                standard_text = f"""As a preservation measure, original materials may not be used. Digital access copies must be provided for use. Contact Manuscripts and Archives at <ref actuate="onRequest" show="new" href="mailto:mssa.assist@yale.edu?subject=Digital Copy Request: {digital_object_title}">mssa.assist@yale.edu</ref> to request access"""
+            elif digital_object_title is None:
+                standard_text = f"""As a preservation measure, original materials may not be used. Digital access copies must be provided for use. Contact Manuscripts and Archives at <ref actuate="onRequest" show="new" href="mailto:mssa.assist@yale.edu?subject=Digital Copy Request">mssa.assist@yale.edu</ref> to request access"""
+            return standard_text, ['RestrictedFragileSpecColl']
+        except Exception:
+            print(traceback.format_exc())
 
     def create_arrangement_note(self, csv_row, record_json):
         if csv_row['arrangement'] != '':
@@ -287,4 +326,4 @@ def main():
         
 
 if __name__ == "__main__":
-	main()
+    main()

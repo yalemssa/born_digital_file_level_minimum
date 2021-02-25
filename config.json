@@ -1,5 +1,5 @@
 {"api_url": "https://testarchivesspace.library.yale.edu/api",
-	"username": "",
-	"password": "",
-	"input_csv": "data/bd_test_data_v3_create.csv",
+	"username": "yourusername",
+	"password": "yourpassword",
+	"input_csv": "data/test_data.csv",
 	"output_folder": "data/output_dir"}
