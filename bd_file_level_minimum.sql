@@ -5,11 +5,11 @@
       , extent_data.extent_number_1
       , extent_data.extent_type_1
       , extent_data.extent_portion_1
-      , extent_data.extent_summary_1
+      , extent_data.extent_summary_1 as extent_container_summary_1
       , extent_data.extent_number_2
       , extent_data.extent_type_2
       , extent_data.extent_portion_2
-      , extent_data.extent_summary_2
+      , extent_data.extent_summary_2 as extent_container_summary_2
       , date_info.expressions as date_expression
       , date_info.begins as date_begin
       , date_info.ends as date_end
@@ -22,7 +22,7 @@
       , access_notes.timebound_restriction_begin_date as timebound_restriction_begin_date
       , access_notes.timebound_restriction_end_date as timebound_restriction_end_date
       , process_notes.notes as process_info
-      , otherfindaid_notes.notes as otherfind_aid
+      , otherfindaid_notes.notes as other_find_aid
       , arrangement_notes.notes as arrangement
     FROM archival_object ao
     LEFT JOIN enumeration_value ev on ev.id = ao.level_id
