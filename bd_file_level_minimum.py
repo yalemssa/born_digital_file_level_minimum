@@ -85,7 +85,7 @@ class FileLevelMin():
             record_json = self.create_access_note(csv_row, record_json, sesh)
             return record_json
         except Exception:
-            print(traceback,format_exc())
+            print(traceback.format_exc())
 
     def create_archival_object(self, csv_row, sesh):
         try:
@@ -135,8 +135,9 @@ class FileLevelMin():
     def execute_process(self):
         self.operation = self.select_operation()
         try:
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                with requests.Session() as sesh:
+            #switched these around to try and prevent the Pool from closing unexpectedly
+            with requests.Session() as sesh:
+                with ThreadPoolExecutor(max_workers=4) as pool:
                     for row in self.csvfile:
                         pool.submit(self.operation, row, sesh)
         except Exception:
@@ -201,9 +202,9 @@ class FileLevelMin():
     def create_extents(self, csv_row, record_json):
         try:
             if (csv_row['extent_number_1'] != '' and csv_row['extent_portion_1'] != '' and csv_row['extent_type_1'] != ''):
-                record_json = self.new_extent(record_json, csv_row['extent_number_1'], csv_row['extent_portion_1'], csv_row['extent_type_1'], csv_row['extent_summary_1'], 0)
+                record_json = self.new_extent(record_json, csv_row['extent_number_1'], csv_row['extent_portion_1'], csv_row['extent_type_1'], csv_row['extent_container_summary_1'], 0)
             if (csv_row['extent_number_2'] != '' and csv_row['extent_portion_2'] != '' and csv_row['extent_type_2'] != ''):
-                record_json = self.new_extent(record_json, csv_row['extent_number_2'], csv_row['extent_portion_2'], csv_row['extent_type_2'], csv_row['extent_summary_2'], 1)
+                record_json = self.new_extent(record_json, csv_row['extent_number_2'], csv_row['extent_portion_2'], csv_row['extent_type_2'], csv_row['extent_container_summary_2'], 1)
             return record_json
         except Exception:
             print(traceback.format_exc())
@@ -310,8 +311,8 @@ class FileLevelMin():
         return record_json
 
     def create_otherfindaid_note(self, csv_row, record_json):
-        if csv_row['otherfind_aid'] != '':
-            record_json = self.create_multipart_note(record_json, csv_row['otherfind_aid'], 'otherfindaid')
+        if csv_row['other_find_aid'] != '':
+            record_json = self.create_multipart_note(record_json, csv_row['other_find_aid'], 'otherfindaid')
         return record_json
 
     def create_scope_note(self, csv_row, record_json):
