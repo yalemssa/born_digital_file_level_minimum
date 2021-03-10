@@ -41,7 +41,7 @@ def opencsvdict(input_csv=None):
             input_csv = input('Please enter path to CSV: ')
         if input_csv == 'quit':
             quit()
-        file = open(input_csv, 'r', encoding='utf-8')
+        file = open(input_csv, 'r', encoding='latin1')
         csvin = csv.DictReader(file)
         return csvin
     except:
@@ -53,16 +53,16 @@ def create_backups(dirpath, uri, record_json):
     with open(f"{dirpath}/{uri[1:].replace('/','_')}.json", 'a', encoding='utf8') as outfile:
         json.dump(record_json, outfile, sort_keys=True, indent=4)
 
-def handle_encoding_errors(row):
+def encodeit(row):
     for key, value in row.items():
         value = bytes(value, encoding='utf-8')
-        value.decode('cp1252').encode('utf-8')
+        value.decode('latin1').encode('utf-8')
         row[key] = value.decode('utf-8')
     return row
 
 class FileLevelMin():
     def __init__(self):
-        self.config = json.load(open('config.json', encoding='utf8'))
+        self.config = json.load(open('config.json', encoding='utf-8'))
         self.csvfile = opencsvdict(self.config['input_csv'])
         self.dirpath = self.config['output_folder']
         self.api_url, self.headers = login(self.config['api_url'], self.config['username'], self.config['password'])
@@ -73,10 +73,13 @@ class FileLevelMin():
         return record_json
 
     def post_updated_object(self, record_json, csv_row, sesh):
-        record_update = sesh.post(f"{self.api_url}{csv_row.get('archival_object_uri')}", json=record_json, headers=self.headers).json()
+        ao_uri = csv_row.get('archival_object_uri')
+        record_update = sesh.post(f"{self.api_url}{ao_uri}", json=record_json, headers=self.headers).json()
         if record_update.get('error') == {'db_error': ['Database integrity constraint conflict: Java::ComMysqlJdbcExceptionsJdbc4::MySQLTransactionRollbackException: Deadlock found when trying to get lock; try restarting transaction']}:
-            print('Deadlock found. Retrying...')
-            self.post_updated_object(record_json, csv_row, sesh)
+            print(f'Deadlock found. Retrying {ao_uri}...')
+            record_json = self.get_object(ao_uri, sesh)
+            record_json = self.update_archival_object(csv_row, record_json, sesh)
+            record_update = sesh.post(f"{self.api_url}{ao_uri}", json=record_json, headers=self.headers).json()
         elif record_update.get('error') == 'The record you tried to update has been modified since you fetched it.':
             print(f"Modified since fetched: {csv_row.get('archival_object_uri')}")
         else:
@@ -123,6 +126,9 @@ class FileLevelMin():
             record_json = self.update_archival_object(csv_row, record_json, sesh)
             posted_object = self.post_updated_object(record_json, csv_row, sesh)
             print(posted_object)
+        # except UnicodeDecodeError:
+        #     csv_row = handle_encoding_errors(csv_row)
+        #     self.run_update_funcs(csv_row, sesh)
         except Exception:
             print(csv_row)
             print(traceback.format_exc())
@@ -152,11 +158,8 @@ class FileLevelMin():
             #switched these around to try and prevent the Pool from closing unexpectedly
             with requests.Session() as sesh:
                 with ThreadPoolExecutor(max_workers=4) as pool:
-                    try:
-                        for row in self.csvfile:
-                            pool.submit(self.operation, row, sesh)
-                    except UnicodeDecodeError:
-                        row = handle_encoding_errors(row)
+                    for row in self.csvfile:
+                        pool.submit(self.operation, encodeit(row), sesh)
         except Exception:
             print(traceback.format_exc())
 
