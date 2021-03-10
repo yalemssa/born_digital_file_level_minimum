@@ -53,6 +53,12 @@ def create_backups(dirpath, uri, record_json):
     with open(f"{dirpath}/{uri[1:].replace('/','_')}.json", 'a', encoding='utf8') as outfile:
         json.dump(record_json, outfile, sort_keys=True, indent=4)
 
+def handle_encoding_errors(row):
+    for key, value in row.items():
+        value = bytes(value, encoding='utf-8')
+        value.decode('cp1252').encode('utf-8')
+        row[key] = value.decode('utf-8')
+    return row
 
 class FileLevelMin():
     def __init__(self):
@@ -67,7 +73,14 @@ class FileLevelMin():
         return record_json
 
     def post_updated_object(self, record_json, csv_row, sesh):
-        return sesh.post(f"{self.api_url}{csv_row.get('archival_object_uri')}", json=record_json, headers=self.headers).json()
+        record_update = sesh.post(f"{self.api_url}{csv_row.get('archival_object_uri')}", json=record_json, headers=self.headers).json()
+        if record_update.get('error') == {'db_error': ['Database integrity constraint conflict: Java::ComMysqlJdbcExceptionsJdbc4::MySQLTransactionRollbackException: Deadlock found when trying to get lock; try restarting transaction']}:
+            print('Deadlock found. Retrying...')
+            self.post_updated_object(record_json, csv_row, sesh)
+        elif record_update.get('error') == 'The record you tried to update has been modified since you fetched it.':
+            print(f"Modified since fetched: {csv_row.get('archival_object_uri')}")
+        else:
+            return record_update
 
     def post_new_object(self, record_json, csv_row, sesh):
         return sesh.post(f"{self.api_url}/repositories/12/archival_objects", json=record_json, headers=self.headers).json()
@@ -111,6 +124,7 @@ class FileLevelMin():
             posted_object = self.post_updated_object(record_json, csv_row, sesh)
             print(posted_object)
         except Exception:
+            print(csv_row)
             print(traceback.format_exc())
 
     def run_create_funcs(self, csv_row, sesh):
@@ -138,8 +152,11 @@ class FileLevelMin():
             #switched these around to try and prevent the Pool from closing unexpectedly
             with requests.Session() as sesh:
                 with ThreadPoolExecutor(max_workers=4) as pool:
-                    for row in self.csvfile:
-                        pool.submit(self.operation, row, sesh)
+                    try:
+                        for row in self.csvfile:
+                            pool.submit(self.operation, row, sesh)
+                    except UnicodeDecodeError:
+                        row = handle_encoding_errors(row)
         except Exception:
             print(traceback.format_exc())
 
