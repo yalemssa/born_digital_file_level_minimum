@@ -119,13 +119,13 @@ class FileLevelMin():
         except Exception:
             print(traceback.format_exc())
 
-    def run_update_funcs(self, csv_row, sesh):
+    def run_update_funcs(self, csv_row, sesh, i):
         try:
             record_uri = csv_row.get('archival_object_uri')
             record_json = self.get_object(record_uri, sesh)
             record_json = self.update_archival_object(csv_row, record_json, sesh)
             posted_object = self.post_updated_object(record_json, csv_row, sesh)
-            print(posted_object)
+            print(f"{i}: {posted_object}")
         # except UnicodeDecodeError:
         #     csv_row = handle_encoding_errors(csv_row)
         #     self.run_update_funcs(csv_row, sesh)
@@ -133,11 +133,11 @@ class FileLevelMin():
             print(csv_row)
             print(traceback.format_exc())
 
-    def run_create_funcs(self, csv_row, sesh):
+    def run_create_funcs(self, csv_row, sesh, i):
         try:
             record_json = self.create_archival_object(csv_row, sesh)
             posted_object = self.post_new_object(record_json, csv_row, sesh)
-            print(posted_object)
+            print(f"{i}: {posted_object}")
         except Exception:
             print(traceback.format_exc())
 
@@ -158,26 +158,40 @@ class FileLevelMin():
             #switched these around to try and prevent the Pool from closing unexpectedly
             with requests.Session() as sesh:
                 with ThreadPoolExecutor(max_workers=4) as pool:
-                    for row in self.csvfile:
-                        pool.submit(self.operation, encodeit(row), sesh)
+                    for i, row in enumerate(self.csvfile):
+                        pool.submit(self.operation, encodeit(row), sesh, i)
         except Exception:
             print(traceback.format_exc())
+
+    def compile_note(self, note_text, note_type, kwargs):
+        new_note = {'jsonmodel_type': 'note_multipart', 'type': note_type, 'publish': True,
+                        'subnotes': [{'jsonmodel_type': 'note_text', 'content': note_text, 'publish': True}]}
+        if note_type == 'accessrestrict':
+            new_note = self.create_machine_actionable_restriction(new_note, kwargs)
+        return new_note
+
+    def add_rights_restriction(self, note):
+        if 'rights_restriction' in note:
+            note['rights_restriction']['local_access_restriction_type'] = ['RestrictedFragileSpecColl']
+        else:
+            note['rights_restriction'] = {'local_access_restriction_type': ['RestrictedFragileSpecColl']}
+        return note
 
     def create_multipart_note(self, record_json, note_text, note_type, **kwargs):
         '''creates a multipart note'''
         try:
             note_types = tuple(note.get('type') for note in record_json['notes'])
-            new_note = {'jsonmodel_type': 'note_multipart', 'type': note_type, 'publish': True,
-                            'subnotes': [{'jsonmodel_type': 'note_text', 'content': note_text, 'publish': True}]}
-            if note_type == 'accessrestrict':
-                new_note = self.create_machine_actionable_restriction(new_note, kwargs)
+            new_note = self.compile_note(note_text, note_type, kwargs)
             if note_type not in note_types:
                 record_json['notes'].append(new_note)
             elif note_type in note_types:
+                # if there is only one existing note of the same type, replace it
                 if note_types.count(note_type) < 2:
                     for note in record_json['notes']:
                         if note['type'] == note_type:
                             note['subnotes'][0]['content'] = note_text
+                            if note_type == 'accessrestrict':
+                                note = self.add_rights_restriction(note)
                 else:
                     record_json['notes'].append(new_note)
             return record_json
